@@ -5,6 +5,7 @@ pydantic
 pydantic-settings
 sqlalchemy
 psycopg2-binary
+aiokafka
 # Observability
 opentelemetry-api
 opentelemetry-sdk
