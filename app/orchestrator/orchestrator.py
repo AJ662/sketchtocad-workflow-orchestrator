@@ -53,16 +53,6 @@ class Orchestrator:
         return SagaRepository(db)
     
     async def start_workflow(self, session_id: str, image_filename: str) -> str:
-        """
-        Initiate a new workflow
-        
-        Args:
-            session_id: Image processing session ID
-            image_filename: Name of uploaded image
-            
-        Returns:
-            saga_id: Unique saga identifier
-        """
         saga_id = f"saga_{uuid.uuid4().hex}"
         
         # Create saga in database
@@ -80,7 +70,8 @@ class Orchestrator:
         # Publish workflow started event
         event = WorkflowStarted(
             saga_id=saga_id,
-            session_id=session_id
+            session_id=session_id,
+            image_filename=image_filename
         )
         await self.event_bus.publish('saga-events', event)
         
@@ -88,12 +79,6 @@ class Orchestrator:
         return saga_id
     
     async def handle_event(self, event: SagaEvent):
-        """
-        Central event handler - saga state machine
-        
-        Args:
-            event: Incoming saga event
-        """
         handler = self.step_handlers.get(event.event_type)
         
         if handler:
@@ -342,9 +327,6 @@ class Orchestrator:
             repo.db.close()
     
     async def run(self):
-        """
-        Main event loop - consume events from saga-events topic
-        """
         logger.info("Event-driven orchestrator starting...")
         
         async for event in self.event_bus.subscribe(

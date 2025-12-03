@@ -5,6 +5,7 @@ import uvicorn
 from contextlib import asynccontextmanager
 import logging
 import os
+from fastapi import FastAPI, HTTPException, Form
 
 from .models import HealthResponse
 from .events import KafkaEventBus
@@ -72,28 +73,17 @@ Instrumentator().instrument(app).expose(app)
 
 
 @app.post("/workflow/start")
-async def start_workflow(file: UploadFile = File(...)):
-    """
-    Start a new image-to-CAD workflow
-    
-    Returns immediately with saga_id. Use GET /workflow/{saga_id} to check status.
-    """
+async def start_workflow(session_id: str = Form(...), image_filename: str = Form(...)):
     if not orchestrator:
         raise HTTPException(status_code=503, detail="Orchestrator not initialized")
     
     try:
-        # For now, we'll create a session_id from the filename
-        # In real implementation, this would come from image-processing service
-        import uuid
-        session_id = f"sess_{uuid.uuid4().hex[:8]}"
-        
-        # Start the saga
         saga_id = await orchestrator.start_workflow(
             session_id=session_id,
-            image_filename=file.filename
+            image_filename=image_filename
         )
         
-        logger.info(f"Started workflow: saga_id={saga_id}, file={file.filename}")
+        logger.info(f"Started workflow: saga_id={saga_id}, session={session_id}")
         
         return {
             "saga_id": saga_id,

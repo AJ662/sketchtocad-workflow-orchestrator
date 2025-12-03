@@ -3,7 +3,7 @@ import logging
 import os
 
 from ..events import KafkaEventBus
-from ..orchestrator import EventDrivenOrchestrator
+from ..orchestrator import Orchestrator
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +18,7 @@ async def main():
     event_bus = KafkaEventBus(bootstrap_servers=kafka_servers)
     await event_bus.start_producer()
     
-    orchestrator = EventDrivenOrchestrator(event_bus)
+    orchestrator = Orchestrator(event_bus)
     
     try:
         await orchestrator.run()

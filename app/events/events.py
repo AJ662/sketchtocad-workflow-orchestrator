@@ -110,13 +110,15 @@ class DXFExported(SagaEvent):
 class WorkflowStarted(SagaEvent):
     """Workflow has been initiated"""
     
-    def __init__(self, saga_id: str, session_id: str, workflow_type: str = "image_to_cad", **kwargs):
+    def __init__(self, saga_id: str, session_id: str, image_filename: str, 
+                 workflow_type: str = "image_to_cad", **kwargs):
         super().__init__(
             saga_id=saga_id,
             event_type=EventType.WORKFLOW_STARTED,
             payload={
                 "session_id": session_id,
-                "workflow_type": workflow_type
+                "workflow_type": workflow_type,
+                "image_filename": image_filename
             },
             **kwargs
         )
