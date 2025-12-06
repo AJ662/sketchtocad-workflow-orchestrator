@@ -1,54 +1,40 @@
-from .types import EventType, SagaStatus
+from .bus import KafkaEventBus
 from .base import SagaEvent
+from .types import EventType, SagaStatus
 from .events import (
-    # Commands
     ImageProcessingRequested,
-    ClusteringRequested,
-    DXFExportRequested,
-    
-    # Success events
     ImageProcessed,
+    ClusteringRequested,
     ClusteringCompleted,
+    DXFExportRequested,
     DXFExported,
-    
-    # Workflow control
     WorkflowStarted,
     WorkflowCompleted,
     WorkflowFailed,
-    
-    # Compensation
+    EnhancementSelected,
+    ClusteringSubmitted,
+    ExportRequested,
     CompensationRequested,
-    CompensationCompleted,
+    CompensationCompleted
 )
-from .bus import KafkaEventBus
 
 __all__ = [
-    # Types
+    'KafkaEventBus',
+    'SagaEvent',
     'EventType',
     'SagaStatus',
-    
-    # Base
-    'SagaEvent',
-    
-    # Command events
     'ImageProcessingRequested',
-    'ClusteringRequested',
-    'DXFExportRequested',
-    
-    # Success events
     'ImageProcessed',
+    'ClusteringRequested',
     'ClusteringCompleted',
+    'DXFExportRequested',
     'DXFExported',
-    
-    # Workflow control
     'WorkflowStarted',
     'WorkflowCompleted',
     'WorkflowFailed',
-    
-    # Compensation
+    'EnhancementSelected',
+    'ClusteringSubmitted',
+    'ExportRequested',
     'CompensationRequested',
-    'CompensationCompleted',
-    
-    # Bus
-    'KafkaEventBus',
+    'CompensationCompleted'
 ]

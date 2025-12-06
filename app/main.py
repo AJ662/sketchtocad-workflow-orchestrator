@@ -1,11 +1,12 @@
-from fastapi import FastAPI, HTTPException, File, UploadFile
+from fastapi import FastAPI, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
+from pydantic import BaseModel
+from typing import Dict, List, Optional
 import uvicorn
 from contextlib import asynccontextmanager
 import logging
 import os
-from fastapi import FastAPI, HTTPException, Form
 
 from .models import HealthResponse
 from .events import KafkaEventBus
@@ -16,59 +17,64 @@ from .observability.tracing import setup_tracing, instrument_app
 from .observability.metrics import setup_metrics
 from .observability.logging import setup_logging
 
-# Setup observability
 logger = setup_logging()
 tracer = setup_tracing("workflow-orchestrator")
 metrics = setup_metrics()
 
-# Global instances
 event_bus: KafkaEventBus = None
 orchestrator: Orchestrator = None
 
 
+class EnhancementSelectionRequest(BaseModel):
+    enhancement_method: str
+    enhanced_colors: Dict[str, List[List[float]]]
+
+
+class ClusteringSubmitRequest(BaseModel):
+    clusters_data: Dict[str, List[int]]
+
+
+class ExportRequest(BaseModel):
+    export_type: str = 'detailed'
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup and shutdown events"""
     global event_bus, orchestrator
     
     logger.info("Workflow Orchestrator Service starting up")
     
-    # Initialize event bus
     kafka_servers = os.getenv('KAFKA_BOOTSTRAP_SERVERS', 'kafka:9092')
     event_bus = KafkaEventBus(bootstrap_servers=kafka_servers)
     await event_bus.start_producer()
     
-    # Initialize orchestrator
     orchestrator = Orchestrator(event_bus)
     
-    logger.info("Event-driven orchestrator initialized ✅")
+    logger.info("Event-driven orchestrator initialized")
     
     yield
     
-    # Shutdown
     logger.info("Workflow Orchestrator Service shutting down")
     await event_bus.close()
 
 
 app = FastAPI(
     title="SketchToCAD Workflow Orchestrator",
-    description="Event-driven saga orchestrator for image processing pipeline",
+    description="Event-driven saga orchestrator with human-in-the-loop support",
     version="2.0.0",
     lifespan=lifespan
 )
 
 instrument_app(app)
 
-# CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Prometheus metrics
 Instrumentator().instrument(app).expose(app)
 
 
@@ -99,7 +105,6 @@ async def start_workflow(session_id: str = Form(...), image_filename: str = Form
 
 @app.get("/workflow/{saga_id}")
 async def get_workflow_status(saga_id: str):
-    """Get current status of a workflow"""
     repo = SagaRepository(SessionLocal())
     
     try:
@@ -135,9 +140,99 @@ async def get_workflow_status(saga_id: str):
         repo.db.close()
 
 
+@app.post("/workflow/{saga_id}/enhancement")
+async def submit_enhancement_selection(saga_id: str, request: EnhancementSelectionRequest):
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrator not initialized")
+    
+    try:
+        success = await orchestrator.resume_with_enhancement(
+            saga_id=saga_id,
+            enhancement_method=request.enhancement_method,
+            enhanced_colors=request.enhanced_colors
+        )
+        
+        if not success:
+            raise HTTPException(
+                status_code=400, 
+                detail="Cannot submit enhancement: saga not in correct state"
+            )
+        
+        return {
+            "saga_id": saga_id,
+            "status": "enhancement_submitted",
+            "message": "Enhancement selection received. Saga will proceed to clustering."
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to submit enhancement: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/workflow/{saga_id}/clustering")
+async def submit_clustering(saga_id: str, request: ClusteringSubmitRequest):
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrator not initialized")
+    
+    try:
+        success = await orchestrator.resume_with_clustering(
+            saga_id=saga_id,
+            clusters_data=request.clusters_data
+        )
+        
+        if not success:
+            raise HTTPException(
+                status_code=400, 
+                detail="Cannot submit clustering: saga not in correct state"
+            )
+        
+        return {
+            "saga_id": saga_id,
+            "status": "clustering_submitted",
+            "message": "Clustering data received. Processing clusters."
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to submit clustering: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/workflow/{saga_id}/export")
+async def request_export(saga_id: str, request: ExportRequest):
+    if not orchestrator:
+        raise HTTPException(status_code=503, detail="Orchestrator not initialized")
+    
+    try:
+        success = await orchestrator.resume_with_export(
+            saga_id=saga_id,
+            export_type=request.export_type
+        )
+        
+        if not success:
+            raise HTTPException(
+                status_code=400, 
+                detail="Cannot request export: saga not in correct state"
+            )
+        
+        return {
+            "saga_id": saga_id,
+            "status": "export_requested",
+            "message": "Export requested. DXF file will be generated."
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to request export: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
-    """Health check"""
     return HealthResponse(
         status="healthy",
         service="workflow-orchestrator",

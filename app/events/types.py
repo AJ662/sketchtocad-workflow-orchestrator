@@ -16,6 +16,11 @@ class EventType(str, Enum):
     WORKFLOW_COMPLETED = "workflow_completed"
     WORKFLOW_FAILED = "workflow_failed"
     
+    # User input events (resume saga with user data)
+    ENHANCEMENT_SELECTED = "enhancement_selected"
+    CLUSTERING_SUBMITTED = "clustering_submitted"
+    EXPORT_REQUESTED = "export_requested"
+    
     # Compensation events
     COMPENSATION_REQUESTED = "compensation_requested"
     COMPENSATION_COMPLETED = "compensation_completed"
@@ -24,7 +29,11 @@ class EventType(str, Enum):
 class SagaStatus(str, Enum):
     STARTED = "started"
     IMAGE_PROCESSING = "image_processing"
-    CLUSTERING = "clustering"
+    AWAITING_ENHANCEMENT_SELECTION = "awaiting_enhancement_selection"
+    GENERATING_ENHANCED_COLORS = "generating_enhanced_colors"
+    AWAITING_CLUSTERING = "awaiting_clustering"
+    PROCESSING_CLUSTERING = "processing_clustering"
+    AWAITING_EXPORT = "awaiting_export"
     DXF_EXPORT = "dxf_export"
     COMPLETED = "completed"
     FAILED = "failed"

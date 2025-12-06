@@ -50,4 +50,4 @@ class HealthResponse(BaseModel):
     status: str
     service: str
     version: str
-    dependencies: Dict[str, str]
+    dependencies: Dict[str, str] = {}
