@@ -1,3 +1,4 @@
+# sketchtocad-workflow-orchestrator/app/orchestrator/orchestrator.py
 import logging
 import uuid
 from typing import Dict, Any
@@ -9,13 +10,10 @@ from ..events import (
     EventType,
     WorkflowStarted,
     ImageProcessingRequested,
-    ImageProcessed,
+    EnhancedColorsRequested,
     ClusteringRequested,
-    ClusteringCompleted,
     DXFExportRequested,
-    DXFExported,
     WorkflowCompleted,
-    WorkflowFailed,
     EnhancementSelected,
     ClusteringSubmitted,
     ExportRequested,
@@ -36,6 +34,7 @@ class Orchestrator:
         self.step_handlers = {
             EventType.WORKFLOW_STARTED: self._handle_workflow_started,
             EventType.IMAGE_PROCESSED: self._handle_image_processed,
+            EventType.ENHANCED_COLORS_GENERATED: self._handle_enhanced_colors_generated,
             EventType.ENHANCEMENT_SELECTED: self._handle_enhancement_selected,
             EventType.CLUSTERING_SUBMITTED: self._handle_clustering_submitted,
             EventType.CLUSTERING_COMPLETED: self._handle_clustering_completed,
@@ -46,9 +45,10 @@ class Orchestrator:
         
         self.step_numbers = {
             'image_processing': 1,
-            'enhancement_selection': 2,
-            'clustering': 3,
-            'dxf_export': 4
+            'enhanced_colors': 2,
+            'enhancement_selection': 3,
+            'clustering': 4,
+            'dxf_export': 5
         }
     
     def _get_repo(self) -> SagaRepository:
@@ -79,8 +79,7 @@ class Orchestrator:
         logger.info(f"Workflow started: saga_id={saga_id}")
         return saga_id
     
-    async def resume_with_enhancement(self, saga_id: str, enhancement_method: str, enhanced_colors: Dict) -> bool:
-        """Resume saga after user selects enhancement method"""
+    async def resume_with_enhancement(self, saga_id: str, enhancement_method: str) -> bool:
         repo = self._get_repo()
         try:
             saga = repo.get_saga(saga_id)
@@ -91,8 +90,7 @@ class Orchestrator:
             event = EnhancementSelected(
                 saga_id=saga_id,
                 session_id=saga.session_id,
-                enhancement_method=enhancement_method,
-                enhanced_colors=enhanced_colors
+                enhancement_method=enhancement_method
             )
             await self.event_bus.publish('saga-events', event)
             return True
@@ -100,7 +98,6 @@ class Orchestrator:
             repo.db.close()
     
     async def resume_with_clustering(self, saga_id: str, clusters_data: Dict) -> bool:
-        """Resume saga after user draws clusters"""
         repo = self._get_repo()
         try:
             saga = repo.get_saga(saga_id)
@@ -119,7 +116,6 @@ class Orchestrator:
             repo.db.close()
     
     async def resume_with_export(self, saga_id: str, export_type: str = 'detailed') -> bool:
-        """Resume saga when user requests export"""
         repo = self._get_repo()
         try:
             saga = repo.get_saga(saga_id)
@@ -139,7 +135,6 @@ class Orchestrator:
     
     async def handle_event(self, event: SagaEvent):
         handler = self.step_handlers.get(event.event_type)
-        
         if handler:
             logger.info(f"Handling event: {event.event_type} [saga_id={event.saga_id}]")
             await handler(event)
@@ -152,31 +147,13 @@ class Orchestrator:
         
         repo = self._get_repo()
         try:
-            repo.update_saga_status(
-                saga_id=saga_id,
-                status=SagaStatus.IMAGE_PROCESSING,
-                current_step='image_processing'
-            )
-            
-            repo.log_step_started(
-                saga_id=saga_id,
-                step_number=self.step_numbers['image_processing'],
-                step_name='image_processing',
-                event_type=EventType.IMAGE_PROCESSING_REQUESTED,
-                correlation_id=event.correlation_id,
-                input_data={'session_id': session_id}
-            )
+            repo.update_saga_status(saga_id=saga_id, status=SagaStatus.IMAGE_PROCESSING, current_step='image_processing')
+            repo.log_step_started(saga_id=saga_id, step_number=self.step_numbers['image_processing'], step_name='image_processing', event_type=EventType.IMAGE_PROCESSING_REQUESTED, correlation_id=event.correlation_id, input_data={'session_id': session_id})
         finally:
             repo.db.close()
         
-        cmd_event = ImageProcessingRequested(
-            saga_id=saga_id,
-            session_id=session_id,
-            image_filename=event.payload.get('image_filename', 'unknown.jpg'),
-            correlation_id=event.correlation_id
-        )
+        cmd_event = ImageProcessingRequested(saga_id=saga_id, session_id=session_id, image_filename=event.payload.get('image_filename', 'unknown.jpg'), correlation_id=event.correlation_id)
         await self.event_bus.publish('saga-commands', cmd_event)
-        
         logger.info(f"Saga {saga_id}: Requested image processing")
     
     async def _handle_image_processed(self, event: SagaEvent):
@@ -190,82 +167,53 @@ class Orchestrator:
         
         repo = self._get_repo()
         try:
-            repo.log_step_completed(
-                saga_id=saga_id,
-                step_name='image_processing',
-                output_data={
-                    'bed_count': bed_count,
-                    'processing_time_ms': processing_time_ms
-                }
-            )
-            
-            # Pause for user input - store data and wait
-            repo.update_saga_status(
-                saga_id=saga_id,
-                status=SagaStatus.AWAITING_ENHANCEMENT_SELECTION,
-                current_step='enhancement_selection'
-            )
-            
-            # Store intermediate result for frontend
-            repo.set_saga_result(
-                saga_id=saga_id,
-                result_data={
-                    'session_id': session_id,
-                    'bed_count': bed_count,
-                    'bed_data': bed_data,
-                    'statistics': statistics,
-                    'image_shape': image_shape,
-                    'processing_time_ms': processing_time_ms,
-                    'awaiting': 'enhancement_selection'
-                }
-            )
+            repo.log_step_completed(saga_id=saga_id, step_name='image_processing', output_data={'bed_count': bed_count, 'processing_time_ms': processing_time_ms})
+            repo.update_saga_status(saga_id=saga_id, status=SagaStatus.GENERATING_ENHANCED_COLORS, current_step='enhanced_colors')
+            repo.log_step_started(saga_id=saga_id, step_number=self.step_numbers['enhanced_colors'], step_name='enhanced_colors', event_type=EventType.ENHANCED_COLORS_REQUESTED, correlation_id=event.correlation_id, input_data={'bed_count': bed_count})
+            repo.set_saga_result(saga_id=saga_id, result_data={'session_id': session_id, 'bed_count': bed_count, 'bed_data': bed_data, 'statistics': statistics, 'image_shape': image_shape, 'processing_time_ms': processing_time_ms})
         finally:
             repo.db.close()
         
-        logger.info(f"Saga {saga_id}: Image processed, awaiting enhancement selection")
+        cmd_event = EnhancedColorsRequested(saga_id=saga_id, session_id=session_id, bed_data=bed_data, correlation_id=event.correlation_id)
+        await self.event_bus.publish('saga-commands', cmd_event)
+        logger.info(f"Saga {saga_id}: Image processed, requesting enhanced colors")
     
-    async def _handle_enhancement_selected(self, event: SagaEvent):
+    async def _handle_enhanced_colors_generated(self, event: SagaEvent):
         saga_id = event.saga_id
-        session_id = event.payload['session_id']
-        enhancement_method = event.payload['enhancement_method']
         enhanced_colors = event.payload['enhanced_colors']
+        enhancement_methods = event.payload['enhancement_methods']
         
         repo = self._get_repo()
         try:
-            repo.log_step_started(
-                saga_id=saga_id,
-                step_number=self.step_numbers['enhancement_selection'],
-                step_name='enhancement_selection',
-                event_type=EventType.ENHANCEMENT_SELECTED,
-                correlation_id=event.correlation_id,
-                input_data={'enhancement_method': enhancement_method}
-            )
-            
-            repo.log_step_completed(
-                saga_id=saga_id,
-                step_name='enhancement_selection',
-                output_data={'enhancement_method': enhancement_method}
-            )
-            
-            # Update status to awaiting clustering
-            repo.update_saga_status(
-                saga_id=saga_id,
-                status=SagaStatus.AWAITING_CLUSTERING,
-                current_step='clustering'
-            )
-            
-            # Get current result and add enhancement data
+            repo.log_step_completed(saga_id=saga_id, step_name='enhanced_colors', output_data={'enhancement_methods': enhancement_methods})
+            repo.update_saga_status(saga_id=saga_id, status=SagaStatus.AWAITING_ENHANCEMENT_SELECTION, current_step='enhancement_selection')
             saga = repo.get_saga(saga_id)
             result_data = saga.result_data or {}
-            result_data['enhancement_method'] = enhancement_method
             result_data['enhanced_colors'] = enhanced_colors
-            result_data['awaiting'] = 'clustering'
-            
+            result_data['enhancement_methods'] = enhancement_methods
+            result_data['awaiting'] = 'enhancement_selection'
             repo.set_saga_result(saga_id=saga_id, result_data=result_data)
         finally:
             repo.db.close()
+        logger.info(f"Saga {saga_id}: Enhanced colors generated, awaiting user selection")
+    
+    async def _handle_enhancement_selected(self, event: SagaEvent):
+        saga_id = event.saga_id
+        enhancement_method = event.payload['enhancement_method']
         
-        logger.info(f"Saga {saga_id}: Enhancement selected, awaiting clustering")
+        repo = self._get_repo()
+        try:
+            repo.log_step_started(saga_id=saga_id, step_number=self.step_numbers['enhancement_selection'], step_name='enhancement_selection', event_type=EventType.ENHANCEMENT_SELECTED, correlation_id=event.correlation_id, input_data={'enhancement_method': enhancement_method})
+            repo.log_step_completed(saga_id=saga_id, step_name='enhancement_selection', output_data={'enhancement_method': enhancement_method})
+            repo.update_saga_status(saga_id=saga_id, status=SagaStatus.AWAITING_CLUSTERING, current_step='clustering')
+            saga = repo.get_saga(saga_id)
+            result_data = saga.result_data or {}
+            result_data['enhancement_method'] = enhancement_method
+            result_data['awaiting'] = 'clustering'
+            repo.set_saga_result(saga_id=saga_id, result_data=result_data)
+        finally:
+            repo.db.close()
+        logger.info(f"Saga {saga_id}: Enhancement selected ({enhancement_method}), awaiting clustering")
     
     async def _handle_clustering_submitted(self, event: SagaEvent):
         saga_id = event.saga_id
@@ -276,73 +224,33 @@ class Orchestrator:
         try:
             saga = repo.get_saga(saga_id)
             result_data = saga.result_data or {}
-            
-            repo.update_saga_status(
-                saga_id=saga_id,
-                status=SagaStatus.PROCESSING_CLUSTERING,
-                current_step='clustering'
-            )
-            
-            repo.log_step_started(
-                saga_id=saga_id,
-                step_number=self.step_numbers['clustering'],
-                step_name='clustering',
-                event_type=EventType.CLUSTERING_REQUESTED,
-                correlation_id=event.correlation_id,
-                input_data={'cluster_count': len(clusters_data)}
-            )
+            repo.update_saga_status(saga_id=saga_id, status=SagaStatus.PROCESSING_CLUSTERING, current_step='clustering')
+            repo.log_step_started(saga_id=saga_id, step_number=self.step_numbers['clustering'], step_name='clustering', event_type=EventType.CLUSTERING_REQUESTED, correlation_id=event.correlation_id, input_data={'cluster_count': len(clusters_data)})
         finally:
             repo.db.close()
         
-        # Send to clustering service
-        cmd_event = ClusteringRequested(
-            saga_id=saga_id,
-            session_id=session_id,
-            bed_data=result_data.get('bed_data', []),
-            enhanced_colors=result_data.get('enhanced_colors', {}),
-            clusters_data=clusters_data,
-            correlation_id=event.correlation_id
-        )
+        cmd_event = ClusteringRequested(saga_id=saga_id, session_id=session_id, bed_data=result_data.get('bed_data', []), enhanced_colors=result_data.get('enhanced_colors', {}), clusters_data=clusters_data, correlation_id=event.correlation_id)
         await self.event_bus.publish('saga-commands', cmd_event)
-        
         logger.info(f"Saga {saga_id}: Clustering submitted to service")
     
     async def _handle_clustering_completed(self, event: SagaEvent):
         saga_id = event.saga_id
-        session_id = event.payload['session_id']
         processed_clusters = event.payload['processed_clusters']
         cluster_count = event.payload['cluster_count']
         clustering_statistics = event.payload.get('statistics', {})
         
         repo = self._get_repo()
         try:
-            repo.log_step_completed(
-                saga_id=saga_id,
-                step_name='clustering',
-                output_data={
-                    'cluster_count': cluster_count,
-                    'processed_clusters': processed_clusters
-                }
-            )
-            
-            # Pause for export request
-            repo.update_saga_status(
-                saga_id=saga_id,
-                status=SagaStatus.AWAITING_EXPORT,
-                current_step='dxf_export'
-            )
-            
-            # Update result data
+            repo.log_step_completed(saga_id=saga_id, step_name='clustering', output_data={'cluster_count': cluster_count, 'processed_clusters': processed_clusters})
+            repo.update_saga_status(saga_id=saga_id, status=SagaStatus.AWAITING_EXPORT, current_step='dxf_export')
             saga = repo.get_saga(saga_id)
             result_data = saga.result_data or {}
             result_data['processed_clusters'] = processed_clusters
             result_data['clustering_statistics'] = clustering_statistics
             result_data['awaiting'] = 'export'
-            
             repo.set_saga_result(saga_id=saga_id, result_data=result_data)
         finally:
             repo.db.close()
-        
         logger.info(f"Saga {saga_id}: Clustering completed, awaiting export request")
     
     async def _handle_export_requested(self, event: SagaEvent):
@@ -354,33 +262,13 @@ class Orchestrator:
         try:
             saga = repo.get_saga(saga_id)
             result_data = saga.result_data or {}
-            
-            repo.update_saga_status(
-                saga_id=saga_id,
-                status=SagaStatus.DXF_EXPORT,
-                current_step='dxf_export'
-            )
-            
-            repo.log_step_started(
-                saga_id=saga_id,
-                step_number=self.step_numbers['dxf_export'],
-                step_name='dxf_export',
-                event_type=EventType.DXF_EXPORT_REQUESTED,
-                correlation_id=event.correlation_id,
-                input_data={'export_type': export_type}
-            )
+            repo.update_saga_status(saga_id=saga_id, status=SagaStatus.DXF_EXPORT, current_step='dxf_export')
+            repo.log_step_started(saga_id=saga_id, step_number=self.step_numbers['dxf_export'], step_name='dxf_export', event_type=EventType.DXF_EXPORT_REQUESTED, correlation_id=event.correlation_id, input_data={'export_type': export_type})
         finally:
             repo.db.close()
         
-        cmd_event = DXFExportRequested(
-            saga_id=saga_id,
-            session_id=session_id,
-            cluster_dict=result_data.get('processed_clusters', {}),
-            export_type=export_type,
-            correlation_id=event.correlation_id
-        )
+        cmd_event = DXFExportRequested(saga_id=saga_id, session_id=session_id, cluster_dict=result_data.get('processed_clusters', {}), export_type=export_type, correlation_id=event.correlation_id)
         await self.event_bus.publish('saga-commands', cmd_event)
-        
         logger.info(f"Saga {saga_id}: DXF export requested")
     
     async def _handle_dxf_exported(self, event: SagaEvent):
@@ -392,23 +280,8 @@ class Orchestrator:
         
         repo = self._get_repo()
         try:
-            repo.log_step_completed(
-                saga_id=saga_id,
-                step_name='dxf_export',
-                output_data={
-                    'download_url': download_url,
-                    'file_size_bytes': file_size_bytes,
-                    'export_time_ms': export_time_ms
-                }
-            )
-            
-            repo.update_saga_status(
-                saga_id=saga_id,
-                status=SagaStatus.COMPLETED,
-                current_step=None
-            )
-            
-            # Final result
+            repo.log_step_completed(saga_id=saga_id, step_name='dxf_export', output_data={'download_url': download_url, 'file_size_bytes': file_size_bytes, 'export_time_ms': export_time_ms})
+            repo.update_saga_status(saga_id=saga_id, status=SagaStatus.COMPLETED, current_step=None)
             saga = repo.get_saga(saga_id)
             result_data = saga.result_data or {}
             result_data['download_url'] = download_url
@@ -416,20 +289,12 @@ class Orchestrator:
             result_data['export_time_ms'] = export_time_ms
             result_data['awaiting'] = None
             result_data['completed_at'] = datetime.utcnow().isoformat()
-            
             repo.set_saga_result(saga_id=saga_id, result_data=result_data)
         finally:
             repo.db.close()
         
-        completed_event = WorkflowCompleted(
-            saga_id=saga_id,
-            session_id=session_id,
-            total_time_ms=0,
-            download_url=download_url,
-            correlation_id=event.correlation_id
-        )
+        completed_event = WorkflowCompleted(saga_id=saga_id, session_id=session_id, total_time_ms=0, download_url=download_url, correlation_id=event.correlation_id)
         await self.event_bus.publish('saga-events', completed_event)
-        
         logger.info(f"Saga {saga_id}: COMPLETED successfully!")
     
     async def _handle_workflow_failed(self, event: SagaEvent):
@@ -439,35 +304,16 @@ class Orchestrator:
         
         repo = self._get_repo()
         try:
-            repo.log_step_failed(
-                saga_id=saga_id,
-                step_name=failed_step,
-                error_message=error_message
-            )
-            
-            repo.update_saga_status(
-                saga_id=saga_id,
-                status=SagaStatus.FAILED,
-                current_step=failed_step,
-                error_message=error_message
-            )
+            repo.log_step_failed(saga_id=saga_id, step_name=failed_step, error_message=error_message)
+            repo.update_saga_status(saga_id=saga_id, status=SagaStatus.FAILED, current_step=failed_step, error_message=error_message)
         finally:
             repo.db.close()
-        
         logger.error(f"Saga {saga_id}: FAILED at {failed_step}: {error_message}")
     
     async def run(self):
         logger.info("Event-driven orchestrator starting...")
-        
-        async for event in self.event_bus.subscribe(
-            topics=['saga-events'],
-            group_id='orchestrator-group'
-        ):
+        async for event in self.event_bus.subscribe(topics=['saga-events'], group_id='orchestrator-group'):
             try:
                 await self.handle_event(event)
             except Exception as e:
-                logger.error(
-                    f"Failed to handle event {event.event_type} "
-                    f"for saga {event.saga_id}: {e}",
-                    exc_info=True
-                )
+                logger.error(f"Failed to handle event {event.event_type} for saga {event.saga_id}: {e}", exc_info=True)

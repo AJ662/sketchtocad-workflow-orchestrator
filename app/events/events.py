@@ -217,3 +217,30 @@ class CompensationCompleted(SagaEvent):
             },
             **kwargs
         )
+
+class EnhancedColorsRequested(SagaEvent):
+    def __init__(self, saga_id: str, session_id: str, bed_data: List[Dict], **kwargs):
+        super().__init__(
+            saga_id=saga_id,
+            event_type=EventType.ENHANCED_COLORS_REQUESTED,
+            payload={
+                "session_id": session_id,
+                "bed_data": bed_data
+            },
+            **kwargs
+        )
+
+
+class EnhancedColorsGenerated(SagaEvent):
+    def __init__(self, saga_id: str, session_id: str, enhanced_colors: Dict, 
+                 enhancement_methods: List[str], **kwargs):
+        super().__init__(
+            saga_id=saga_id,
+            event_type=EventType.ENHANCED_COLORS_GENERATED,
+            payload={
+                "session_id": session_id,
+                "enhanced_colors": enhanced_colors,
+                "enhancement_methods": enhancement_methods
+            },
+            **kwargs
+        )

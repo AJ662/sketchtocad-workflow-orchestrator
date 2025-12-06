@@ -1,3 +1,4 @@
+# sketchtocad-workflow-orchestrator/app/main.py
 from fastapi import FastAPI, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
@@ -27,7 +28,6 @@ orchestrator: Orchestrator = None
 
 class EnhancementSelectionRequest(BaseModel):
     enhancement_method: str
-    enhanced_colors: Dict[str, List[List[float]]]
 
 
 class ClusteringSubmitRequest(BaseModel):
@@ -148,8 +148,7 @@ async def submit_enhancement_selection(saga_id: str, request: EnhancementSelecti
     try:
         success = await orchestrator.resume_with_enhancement(
             saga_id=saga_id,
-            enhancement_method=request.enhancement_method,
-            enhanced_colors=request.enhanced_colors
+            enhancement_method=request.enhancement_method
         )
         
         if not success:
@@ -236,7 +235,8 @@ async def health_check():
     return HealthResponse(
         status="healthy",
         service="workflow-orchestrator",
-        version="2.0.0"
+        version="2.0.0",
+        dependencies={}
     )
 
 
