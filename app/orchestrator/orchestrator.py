@@ -188,7 +188,7 @@ class Orchestrator:
             repo.log_step_completed(saga_id=saga_id, step_name='enhanced_colors', output_data={'enhancement_methods': enhancement_methods})
             repo.update_saga_status(saga_id=saga_id, status=SagaStatus.AWAITING_ENHANCEMENT_SELECTION, current_step='enhancement_selection')
             saga = repo.get_saga(saga_id)
-            result_data = saga.result_data or {}
+            result_data = dict(saga.result_data or {})
             result_data['enhanced_colors'] = enhanced_colors
             result_data['enhancement_methods'] = enhancement_methods
             result_data['awaiting'] = 'enhancement_selection'
@@ -207,7 +207,7 @@ class Orchestrator:
             repo.log_step_completed(saga_id=saga_id, step_name='enhancement_selection', output_data={'enhancement_method': enhancement_method})
             repo.update_saga_status(saga_id=saga_id, status=SagaStatus.AWAITING_CLUSTERING, current_step='clustering')
             saga = repo.get_saga(saga_id)
-            result_data = saga.result_data or {}
+            result_data = dict(saga.result_data or {})
             result_data['enhancement_method'] = enhancement_method
             result_data['awaiting'] = 'clustering'
             repo.set_saga_result(saga_id=saga_id, result_data=result_data)
@@ -244,7 +244,7 @@ class Orchestrator:
             repo.log_step_completed(saga_id=saga_id, step_name='clustering', output_data={'cluster_count': cluster_count, 'processed_clusters': processed_clusters})
             repo.update_saga_status(saga_id=saga_id, status=SagaStatus.AWAITING_EXPORT, current_step='dxf_export')
             saga = repo.get_saga(saga_id)
-            result_data = saga.result_data or {}
+            result_data = dict(saga.result_data or {})
             result_data['processed_clusters'] = processed_clusters
             result_data['clustering_statistics'] = clustering_statistics
             result_data['awaiting'] = 'export'
@@ -283,7 +283,7 @@ class Orchestrator:
             repo.log_step_completed(saga_id=saga_id, step_name='dxf_export', output_data={'download_url': download_url, 'file_size_bytes': file_size_bytes, 'export_time_ms': export_time_ms})
             repo.update_saga_status(saga_id=saga_id, status=SagaStatus.COMPLETED, current_step=None)
             saga = repo.get_saga(saga_id)
-            result_data = saga.result_data or {}
+            result_data = dict(saga.result_data or {})
             result_data['download_url'] = download_url
             result_data['file_size_bytes'] = file_size_bytes
             result_data['export_time_ms'] = export_time_ms
