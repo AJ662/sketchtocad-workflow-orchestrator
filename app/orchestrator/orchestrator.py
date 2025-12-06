@@ -87,10 +87,13 @@ class Orchestrator:
                 logger.error(f"Cannot resume saga {saga_id}: invalid status {saga.status if saga else 'not found'}")
                 return False
             
+            enhanced_colors = (saga.result_data or {}).get('enhanced_colors', {})
+            
             event = EnhancementSelected(
                 saga_id=saga_id,
                 session_id=saga.session_id,
-                enhancement_method=enhancement_method
+                enhancement_method=enhancement_method,
+                enhanced_colors=enhanced_colors
             )
             await self.event_bus.publish('saga-events', event)
             return True
