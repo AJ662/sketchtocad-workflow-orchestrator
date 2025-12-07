@@ -35,7 +35,7 @@ class ClusteringRequested(SagaEvent):
 
 
 class DXFExportRequested(SagaEvent):
-    def __init__(self, saga_id: str, session_id: str, cluster_dict: Dict, 
+    def __init__(self, saga_id: str, session_id: str, cluster_dict: Dict, bed_data: List[Dict], 
                  export_type: str = 'detailed', **kwargs):
         super().__init__(
             saga_id=saga_id,
@@ -43,6 +43,7 @@ class DXFExportRequested(SagaEvent):
             payload={
                 "session_id": session_id,
                 "cluster_dict": cluster_dict,
+                "bed_data": bed_data,
                 "export_type": export_type
             },
             **kwargs

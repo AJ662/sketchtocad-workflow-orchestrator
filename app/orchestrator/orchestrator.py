@@ -270,7 +270,7 @@ class Orchestrator:
         finally:
             repo.db.close()
         
-        cmd_event = DXFExportRequested(saga_id=saga_id, session_id=session_id, cluster_dict=result_data.get('processed_clusters', {}), export_type=export_type, correlation_id=event.correlation_id)
+        cmd_event = DXFExportRequested(saga_id=saga_id, session_id=session_id, cluster_dict=result_data.get('processed_clusters', {}), bed_data=result_data.get('bed_data', []), export_type=export_type, correlation_id=event.correlation_id)
         await self.event_bus.publish('saga-commands', cmd_event)
         logger.info(f"Saga {saga_id}: DXF export requested")
     
