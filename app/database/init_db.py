@@ -6,7 +6,7 @@ from .saga_models import Base
 
 DATABASE_URL = os.getenv(
     'DATABASE_URL',
-    'postgresql://sketchtocad:sketchtocad_dev@localhost:5432/saga_state'
+    'postgresql://postgres:password@postgres-saga:5432/sagadb'
 )
 
 engine = create_engine(DATABASE_URL)
