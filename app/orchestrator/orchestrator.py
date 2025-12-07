@@ -238,6 +238,7 @@ class Orchestrator:
     
     async def _handle_clustering_completed(self, event: SagaEvent):
         saga_id = event.saga_id
+        session_id = event.payload['session_id']
         processed_clusters = event.payload['processed_clusters']
         cluster_count = event.payload['cluster_count']
         clustering_statistics = event.payload.get('statistics', {})
@@ -245,16 +246,27 @@ class Orchestrator:
         repo = self._get_repo()
         try:
             repo.log_step_completed(saga_id=saga_id, step_name='clustering', output_data={'cluster_count': cluster_count, 'processed_clusters': processed_clusters})
-            repo.update_saga_status(saga_id=saga_id, status=SagaStatus.AWAITING_EXPORT, current_step='dxf_export')
+            repo.update_saga_status(saga_id=saga_id, status=SagaStatus.DXF_EXPORT, current_step='dxf_export')
             saga = repo.get_saga(saga_id)
             result_data = dict(saga.result_data or {})
             result_data['processed_clusters'] = processed_clusters
             result_data['clustering_statistics'] = clustering_statistics
-            result_data['awaiting'] = 'export'
             repo.set_saga_result(saga_id=saga_id, result_data=result_data)
+            repo.log_step_started(saga_id=saga_id, step_number=self.step_numbers['dxf_export'], step_name='dxf_export', event_type=EventType.DXF_EXPORT_REQUESTED, correlation_id=event.correlation_id, input_data={'export_type': 'detailed'})
         finally:
             repo.db.close()
-        logger.info(f"Saga {saga_id}: Clustering completed, awaiting export request")
+        
+        # Auto-trigger DXF export
+        cmd_event = DXFExportRequested(
+            saga_id=saga_id, 
+            session_id=session_id, 
+            cluster_dict=processed_clusters, 
+            bed_data=result_data.get('bed_data', []), 
+            export_type='detailed',
+            correlation_id=event.correlation_id
+        )
+        await self.event_bus.publish('saga-commands', cmd_event)
+        logger.info(f"Saga {saga_id}: Clustering completed, auto-triggering DXF export")
     
     async def _handle_export_requested(self, event: SagaEvent):
         saga_id = event.saga_id
@@ -277,28 +289,26 @@ class Orchestrator:
     async def _handle_dxf_exported(self, event: SagaEvent):
         saga_id = event.saga_id
         session_id = event.payload['session_id']
-        download_url = event.payload['download_url']
+        dxf_content = event.payload.get('dxf_content', '')  # Base64 encoded DXF
         file_size_bytes = event.payload.get('file_size_bytes', 0)
         export_time_ms = event.payload.get('export_time_ms', 0)
         
         repo = self._get_repo()
         try:
-            repo.log_step_completed(saga_id=saga_id, step_name='dxf_export', output_data={'download_url': download_url, 'file_size_bytes': file_size_bytes, 'export_time_ms': export_time_ms})
+            repo.log_step_completed(saga_id=saga_id, step_name='dxf_export', output_data={'file_size_bytes': file_size_bytes, 'export_time_ms': export_time_ms})
             repo.update_saga_status(saga_id=saga_id, status=SagaStatus.COMPLETED, current_step=None)
             saga = repo.get_saga(saga_id)
             result_data = dict(saga.result_data or {})
-            result_data['download_url'] = download_url
+            result_data['dxf_content'] = dxf_content  # Store base64 content
             result_data['file_size_bytes'] = file_size_bytes
             result_data['export_time_ms'] = export_time_ms
-            result_data['awaiting'] = None
             result_data['completed_at'] = datetime.utcnow().isoformat()
             repo.set_saga_result(saga_id=saga_id, result_data=result_data)
         finally:
             repo.db.close()
         
-        completed_event = WorkflowCompleted(saga_id=saga_id, session_id=session_id, total_time_ms=0, download_url=download_url, correlation_id=event.correlation_id)
-        await self.event_bus.publish('saga-events', completed_event)
         logger.info(f"Saga {saga_id}: COMPLETED successfully!")
+    
     
     async def _handle_workflow_failed(self, event: SagaEvent):
         saga_id = event.saga_id
