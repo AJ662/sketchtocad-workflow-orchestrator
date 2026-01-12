@@ -19,4 +19,4 @@ deprecated
 python-multipart
 # Testing
 pytest
-httpx
+httpxboto3>=1.28.0
