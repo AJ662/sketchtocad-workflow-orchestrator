@@ -35,25 +35,25 @@ class ClusteringSubmitRequest(BaseModel):
 
 
 class ExportRequest(BaseModel):
-    export_type: str = 'detailed'
+    export_type: str = "detailed"
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global event_bus, orchestrator
-    
+
     logger.info("Workflow Orchestrator Service starting up")
-    
-    kafka_servers = os.getenv('KAFKA_BOOTSTRAP_SERVERS', 'kafka:9092')
+
+    kafka_servers = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
     event_bus = KafkaEventBus(bootstrap_servers=kafka_servers)
     await event_bus.start_producer()
-    
+
     orchestrator = Orchestrator(event_bus)
-    
+
     logger.info("Event-driven orchestrator initialized")
-    
+
     yield
-    
+
     logger.info("Workflow Orchestrator Service shutting down")
     await event_bus.close()
 
@@ -62,14 +62,28 @@ app = FastAPI(
     title="SketchToCAD Workflow Orchestrator",
     description="Event-driven saga orchestrator with human-in-the-loop support",
     version="2.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 instrument_app(app)
 
+
+# OWASP A05: Custom exception handler to prevent information leakage
+@app.exception_handler(Exception)
+async def generic_exception_handler(request, exc):
+    logger.error(f"Unhandled exception: {exc}", exc_info=True)
+    from fastapi.responses import JSONResponse
+
+    return JSONResponse(
+        status_code=500, content={"detail": "An internal error occurred"}
+    )
+
+
+# OWASP A05: Restrict CORS origins (use env var for production)
+allowed_origins = os.getenv("CORS_ALLOWED_ORIGINS", "*").split(",")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -82,22 +96,21 @@ Instrumentator().instrument(app).expose(app)
 async def start_workflow(session_id: str = Form(...), image_filename: str = Form(...)):
     if not orchestrator:
         raise HTTPException(status_code=503, detail="Orchestrator not initialized")
-    
+
     try:
         saga_id = await orchestrator.start_workflow(
-            session_id=session_id,
-            image_filename=image_filename
+            session_id=session_id, image_filename=image_filename
         )
-        
+
         logger.info(f"Started workflow: saga_id={saga_id}, session={session_id}")
-        
+
         return {
             "saga_id": saga_id,
             "session_id": session_id,
             "status": "started",
-            "message": "Workflow initiated. Use GET /workflow/{saga_id} to check status."
+            "message": "Workflow initiated. Use GET /workflow/{saga_id} to check status.",
         }
-        
+
     except Exception as e:
         logger.error(f"Failed to start workflow: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
@@ -106,15 +119,15 @@ async def start_workflow(session_id: str = Form(...), image_filename: str = Form
 @app.get("/workflow/{saga_id}")
 async def get_workflow_status(saga_id: str):
     repo = SagaRepository(SessionLocal())
-    
+
     try:
         saga = repo.get_saga(saga_id)
-        
+
         if not saga:
             raise HTTPException(status_code=404, detail=f"Saga not found: {saga_id}")
-        
+
         steps = repo.get_saga_steps(saga_id)
-        
+
         return {
             "saga_id": saga.id,
             "status": saga.status,
@@ -122,7 +135,9 @@ async def get_workflow_status(saga_id: str):
             "session_id": saga.session_id,
             "created_at": saga.created_at.isoformat() if saga.created_at else None,
             "updated_at": saga.updated_at.isoformat() if saga.updated_at else None,
-            "completed_at": saga.completed_at.isoformat() if saga.completed_at else None,
+            "completed_at": (
+                saga.completed_at.isoformat() if saga.completed_at else None
+            ),
             "total_duration_ms": saga.total_duration_ms,
             "error_message": saga.error_message,
             "result_data": saga.result_data,
@@ -130,39 +145,40 @@ async def get_workflow_status(saga_id: str):
                 {
                     "step_name": step.step_name,
                     "status": step.status,
-                    "duration_ms": step.duration_ms
+                    "duration_ms": step.duration_ms,
                 }
                 for step in steps
-            ]
+            ],
         }
-        
+
     finally:
         repo.db.close()
 
 
 @app.post("/workflow/{saga_id}/enhancement")
-async def submit_enhancement_selection(saga_id: str, request: EnhancementSelectionRequest):
+async def submit_enhancement_selection(
+    saga_id: str, request: EnhancementSelectionRequest
+):
     if not orchestrator:
         raise HTTPException(status_code=503, detail="Orchestrator not initialized")
-    
+
     try:
         success = await orchestrator.resume_with_enhancement(
-            saga_id=saga_id,
-            enhancement_method=request.enhancement_method
+            saga_id=saga_id, enhancement_method=request.enhancement_method
         )
-        
+
         if not success:
             raise HTTPException(
-                status_code=400, 
-                detail="Cannot submit enhancement: saga not in correct state"
+                status_code=400,
+                detail="Cannot submit enhancement: saga not in correct state",
             )
-        
+
         return {
             "saga_id": saga_id,
             "status": "enhancement_submitted",
-            "message": "Enhancement selection received. Saga will proceed to clustering."
+            "message": "Enhancement selection received. Saga will proceed to clustering.",
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -174,25 +190,24 @@ async def submit_enhancement_selection(saga_id: str, request: EnhancementSelecti
 async def submit_clustering(saga_id: str, request: ClusteringSubmitRequest):
     if not orchestrator:
         raise HTTPException(status_code=503, detail="Orchestrator not initialized")
-    
+
     try:
         success = await orchestrator.resume_with_clustering(
-            saga_id=saga_id,
-            clusters_data=request.clusters_data
+            saga_id=saga_id, clusters_data=request.clusters_data
         )
-        
+
         if not success:
             raise HTTPException(
-                status_code=400, 
-                detail="Cannot submit clustering: saga not in correct state"
+                status_code=400,
+                detail="Cannot submit clustering: saga not in correct state",
             )
-        
+
         return {
             "saga_id": saga_id,
             "status": "clustering_submitted",
-            "message": "Clustering data received. Processing clusters."
+            "message": "Clustering data received. Processing clusters.",
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -204,25 +219,24 @@ async def submit_clustering(saga_id: str, request: ClusteringSubmitRequest):
 async def request_export(saga_id: str, request: ExportRequest):
     if not orchestrator:
         raise HTTPException(status_code=503, detail="Orchestrator not initialized")
-    
+
     try:
         success = await orchestrator.resume_with_export(
-            saga_id=saga_id,
-            export_type=request.export_type
+            saga_id=saga_id, export_type=request.export_type
         )
-        
+
         if not success:
             raise HTTPException(
-                status_code=400, 
-                detail="Cannot request export: saga not in correct state"
+                status_code=400,
+                detail="Cannot request export: saga not in correct state",
             )
-        
+
         return {
             "saga_id": saga_id,
             "status": "export_requested",
-            "message": "Export requested. DXF file will be generated."
+            "message": "Export requested. DXF file will be generated.",
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -236,15 +250,10 @@ async def health_check():
         status="healthy",
         service="workflow-orchestrator",
         version="2.0.0",
-        dependencies={}
+        dependencies={},
     )
 
 
 if __name__ == "__main__":
-    uvicorn.run(
-        "app.main:app",
-        host="0.0.0.0",
-        port=8004,
-        reload=True,
-        log_config=None
-    )
+    # OWASP A05: reload=True removed for production
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8004, log_config=None)
